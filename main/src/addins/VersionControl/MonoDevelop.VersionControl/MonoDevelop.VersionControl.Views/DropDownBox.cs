@@ -48,9 +48,12 @@ namespace MonoDevelop.VersionControl.Views
 			}
 			set {
 				layout.SetText (value);
+				TextChanged?.Invoke (this, EventArgs.Empty);
 //				QueueResize ();
 			}
 		}
+
+		public event EventHandler TextChanged;
 		
 		public Gdk.Pixbuf Pixbuf {
 			get;

@@ -36,6 +36,7 @@ using MonoDevelop.Core;
 using MonoDevelop.Ide.Gui;
 using MonoDevelop.Ide.Gui.Content;
 using System.Threading.Tasks;
+using Microsoft.TemplateEngine.Core.Contracts;
 
 namespace MonoDevelop.VersionControl.Views
 {
@@ -93,15 +94,23 @@ namespace MonoDevelop.VersionControl.Views
 				originalComboBox.Text = GettextCatalog.GetString ("Loading…");
 				originalComboBox.Sensitive = false;
 				originalComboBox.Tag = editors[1];
+				originalComboBox.TextChanged += UpdateAccessibility;
 
 				diffComboBox = new DropDownBox ();
 				diffComboBox.WindowRequestFunc = CreateComboBoxSelector;
 				diffComboBox.Text = GettextCatalog.GetString ("Loading…");
 				diffComboBox.Sensitive = false;
 				diffComboBox.Tag = editors[0];
-
+				diffComboBox.TextChanged += UpdateAccessibility;
 				this.headerWidgets = new [] { diffComboBox, originalComboBox };
+				UpdateAccessibility (this, EventArgs.Empty);
 			}
+		}
+
+		void UpdateAccessibility (object sender, EventArgs e)
+		{
+			originalComboBox.Accessible.Description = GettextCatalog.GetString ("Select original revision, current: {0}", originalComboBox.Text);
+			diffComboBox.Accessible.Description = GettextCatalog.GetString ("Select diff revision, current: {0}", diffComboBox.Text);
 		}
 
 		protected override void OnSetVersionControlInfo (VersionControlDocumentInfo info)
@@ -121,6 +130,10 @@ namespace MonoDevelop.VersionControl.Views
 		protected override void OnDestroyed ()
 		{
 			info.Updated -= OnInfoUpdated;
+			if (originalComboBox != null)
+				originalComboBox.TextChanged -= UpdateAccessibility;
+			if (diffComboBox != null)
+				diffComboBox.TextChanged -= UpdateAccessibility;
 			base.OnDestroyed ();
 		}
 
