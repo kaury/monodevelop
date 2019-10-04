@@ -83,8 +83,8 @@ namespace MonoDevelop.Debugger
 		void ReloadValues ()
 		{
 			// clone the list of expressions
-//			expressions.Clear ();
-//			expressions.AddRange (controller.GetExpressions());
+			expressions.Clear ();
+			expressions.AddRange (controller.GetExpressions ());
 
 			// remove the expressions because we're going to rebuild them
 			controller.ClearAll ();
