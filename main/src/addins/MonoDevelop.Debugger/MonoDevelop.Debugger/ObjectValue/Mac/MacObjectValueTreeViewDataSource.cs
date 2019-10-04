@@ -187,7 +187,7 @@ namespace MonoDevelop.Debugger
 			if (parent.Target is RootObjectValueNode)
 				treeView.InsertItems (indexes, null, NSTableViewAnimation.None);
 			else
-				treeView.InsertItems (indexes, parent, NSTableViewAnimation.None);
+				treeView.InsertItems (indexes, parent, NSTableViewAnimation.SlideDown);
 
 			// if we loaded children and discovered that the node does not actually have any children,
 			// update the node and reload the data.
