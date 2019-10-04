@@ -114,6 +114,9 @@ namespace MonoDevelop.Debugger
 			var parent = item.Parent;
 			int index = -1;
 
+			if (parent == null)
+				return;
+
 			for (int i = 0; i < parent.Children.Count; i++) {
 				if (parent.Children[i] == item) {
 					index = i;

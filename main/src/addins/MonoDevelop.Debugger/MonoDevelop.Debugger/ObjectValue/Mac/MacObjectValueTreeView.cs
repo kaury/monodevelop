@@ -605,6 +605,9 @@ namespace MonoDevelop.Debugger
 
 		void UpdatePreviewIcon (nint row, PreviewButtonIcon icon)
 		{
+			if (row >= RowCount)
+				return;
+
 			var rowView = GetRowView (row, false);
 
 			if (rowView != null) {
@@ -616,6 +619,9 @@ namespace MonoDevelop.Debugger
 
 		void UpdatePinIcon (nint row, bool hover)
 		{
+			if (row >= RowCount)
+				return;
+
 			if (pinColumn == null)
 				return;
 
