@@ -192,9 +192,8 @@ namespace MonoDevelop.Debugger
 			// if we loaded children and discovered that the node does not actually have any children,
 			// update the node and reload the data.
 			// TOOD: it would be nice to know this before the node is expanded so we don't see the "loading" node flash
-			if (!node.HasChildren) {
-				treeView.ReloadData ();
-			}
+			if (!node.HasChildren)
+				treeView.ReloadItem (parent);
 		}
 
 		public void Clear ()

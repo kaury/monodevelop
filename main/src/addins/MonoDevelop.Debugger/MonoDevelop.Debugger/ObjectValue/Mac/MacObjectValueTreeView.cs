@@ -29,13 +29,12 @@ using System.Text;
 using System.Collections.Generic;
 
 using AppKit;
+using Foundation;
 using CoreGraphics;
 
 using MonoDevelop.Core;
 using MonoDevelop.Ide.Commands;
 using MonoDevelop.Components.Commands;
-using Foundation;
-using CoreAnimation;
 
 namespace MonoDevelop.Debugger
 {
