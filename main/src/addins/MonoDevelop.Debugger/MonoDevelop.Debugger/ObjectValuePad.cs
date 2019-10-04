@@ -69,7 +69,10 @@ namespace MonoDevelop.Debugger
 					//fontChanger = new PadFontChanger (ctrl, treeView.SetCustomFont, treeView.QueueResize);
 
 					var scrolled = new AppKit.NSScrollView {
-						DocumentView = treeView
+						DocumentView = treeView,
+						AutohidesScrollers = false,
+						HasVerticalScroller = true,
+						HasHorizontalScroller = true,
 					};
 
 					var host = new GtkNSViewHost (scrolled);
