@@ -34,6 +34,8 @@ using CoreGraphics;
 using MonoDevelop.Core;
 using MonoDevelop.Ide.Commands;
 using MonoDevelop.Components.Commands;
+using Foundation;
+using CoreAnimation;
 
 namespace MonoDevelop.Debugger
 {
@@ -124,6 +126,20 @@ namespace MonoDevelop.Debugger
 				HeaderView = null;
 
 			PreviewWindowManager.WindowClosed += OnPreviewWindowClosed;
+
+			// disable implicit animations
+			this.WantsLayer = true;
+			this.Layer.Actions = new NSDictionary (
+				"actions", NSNull.Null,
+				"contents", NSNull.Null,
+				"hidden", NSNull.Null,
+				"onLayout", NSNull.Null,
+				"onOrderIn", NSNull.Null,
+				"onOrderOut", NSNull.Null,
+				"position", NSNull.Null,
+				"sublayers", NSNull.Null,
+				"transform", NSNull.Null,
+				"bounds", NSNull.Null);
 		}
 
 		public ObjectValueTreeViewController Controller {
