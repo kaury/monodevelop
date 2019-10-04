@@ -187,6 +187,9 @@ namespace MonoDevelop.Debugger
 			TextField.PlaceholderString = placeholder;
 			TextField.TextColor = textColor;
 			TextField.Editable = editable;
+			TextField.SizeToFit ();
+
+			OptimalWidth += TextField.Frame.Width;
 
 			constraints.Add (TextField.CenterYAnchor.ConstraintEqualToAnchor (CenterYAnchor));
 			constraints.Add (TextField.LeadingAnchor.ConstraintEqualToAnchor (ImageView.TrailingAnchor, RowCellSpacing));
@@ -199,6 +202,7 @@ namespace MonoDevelop.Debugger
 					previewIconVisible = true;
 				}
 
+				constraints.Add (TextField.WidthAnchor.ConstraintGreaterThanOrEqualToConstant (TextField.Frame.Width));
 				constraints.Add (PreviewButton.CenterYAnchor.ConstraintEqualToAnchor (CenterYAnchor));
 				constraints.Add (PreviewButton.LeadingAnchor.ConstraintEqualToAnchor (TextField.TrailingAnchor, RowCellSpacing));
 				constraints.Add (PreviewButton.WidthAnchor.ConstraintEqualToConstant (ImageSize));
@@ -218,9 +222,6 @@ namespace MonoDevelop.Debugger
 			foreach (var constraint in constraints)
 				constraint.Active = true;
 
-			TextField.SizeToFit ();
-
-			OptimalWidth += TextField.Frame.Width;
 			OptimalWidth += MarginSize;
 		}
 
