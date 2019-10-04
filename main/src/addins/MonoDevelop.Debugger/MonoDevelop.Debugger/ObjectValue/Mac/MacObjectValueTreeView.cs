@@ -357,10 +357,8 @@ namespace MonoDevelop.Debugger
 		{
 			base.SetFrameSize (newSize);
 
-			if (!autoresizing && !compactView) {
-				ScaleColumnSizesToFit ();
-				OnResized ();
-			}
+			//if (!autoresizing && !compactView)
+			//	ScaleColumnSizesToFit ();
 		}
 
 		/// <summary>
