@@ -625,9 +625,8 @@ namespace MonoDevelop.Debugger
 			}
 
 			await Runtime.RunInMainThread (() => {
-				if (loadedCount > 0) {
-					view.LoadNodeChildren (node, 0, node.Children.Count);
-				}
+				// tell the view about the children, even if there are, in fact, none
+				view.LoadNodeChildren (node, 0, node.Children.Count);
 
 				view.OnNodeExpanded (node);
 			});
