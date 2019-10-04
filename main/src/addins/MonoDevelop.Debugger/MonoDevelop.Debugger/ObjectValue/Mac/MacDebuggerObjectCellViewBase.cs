@@ -104,21 +104,36 @@ namespace MonoDevelop.Debugger
 		{
 			var icon = ImageService.GetIcon (name, size);
 
-			return icon.ToNSImage ();
+			try {
+				return icon.ToNSImage ();
+			} catch (Exception ex) {
+				Core.LoggingService.LogError ($"Failed to load '{name}' as an NSImage", ex);
+				return icon.ToBitmap (NSScreen.MainScreen.BackingScaleFactor).ToNSImage ();
+			}
 		}
 
 		protected static NSImage GetImage (string name, Gtk.IconSize size, double alpha)
 		{
 			var icon = ImageService.GetIcon (name, size).WithAlpha (alpha);
 
-			return icon.ToNSImage ();
+			try {
+				return icon.ToNSImage ();
+			} catch (Exception ex) {
+				Core.LoggingService.LogError ($"Failed to load '{name}' as an NSImage", ex);
+				return icon.ToBitmap (NSScreen.MainScreen.BackingScaleFactor).ToNSImage ();
+			}
 		}
 
 		protected static NSImage GetImage (string name, int width, int height)
 		{
 			var icon = ImageService.GetIcon (name).WithSize (width, height);
 
-			return icon.ToNSImage ();
+			try {
+				return icon.ToNSImage ();
+			} catch (Exception ex) {
+				Core.LoggingService.LogError ($"Failed to load '{name}' as an NSImage", ex);
+				return icon.ToBitmap (NSScreen.MainScreen.BackingScaleFactor).ToNSImage ();
+			}
 		}
 
 		protected static CGColor GetCGColor (Color color)
