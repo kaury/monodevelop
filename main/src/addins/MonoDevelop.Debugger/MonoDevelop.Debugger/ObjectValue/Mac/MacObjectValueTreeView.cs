@@ -93,7 +93,7 @@ namespace MonoDevelop.Debugger
 			UsesAlternatingRowBackgroundColors = true;
 			FocusRingType = NSFocusRingType.None;
 			AutoresizesOutlineColumn = false;
-			AllowsColumnResizing = true;
+			AllowsColumnResizing = !compactView;
 
 			var resizingMask = compactView ? NSTableColumnResizing.None : NSTableColumnResizing.UserResizingMask;
 
