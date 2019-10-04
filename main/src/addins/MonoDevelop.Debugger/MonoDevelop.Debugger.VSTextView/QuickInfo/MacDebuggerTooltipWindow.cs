@@ -43,6 +43,7 @@ namespace MonoDevelop.Debugger
 
 		public MacDebuggerTooltipWindow (PinnedWatchLocation location, StackFrame frame, ObjectValue value, PinnedWatch watch)
 		{
+			Animates = false;
 			Behavior = NSPopoverBehavior.Semitransient;
 
 			controller = new ObjectValueTreeViewController ();
