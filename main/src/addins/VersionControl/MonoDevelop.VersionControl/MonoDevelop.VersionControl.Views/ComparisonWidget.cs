@@ -31,6 +31,7 @@ using System.Collections.Generic;
 using Mono.TextEditor;
 using MonoDevelop.Ide;
 using MonoDevelop.Components;
+using MonoDevelop.Components.AtkCocoaHelper;
 using System.ComponentModel;
 using MonoDevelop.Core;
 using MonoDevelop.Ide.Gui;
@@ -42,7 +43,8 @@ namespace MonoDevelop.VersionControl.Views
 	[ToolboxItem (true)]
 	class ComparisonWidget : EditorCompareWidgetBase
 	{
-		internal DropDownBox originalComboBox, diffComboBox;
+		internal ComboBox originalComboBox, diffComboBox;
+		ListStore revisionStore;
 
 		public MonoTextEditor OriginalEditor {
 			get {
@@ -56,13 +58,13 @@ namespace MonoDevelop.VersionControl.Views
 			}
 		}
 
-		public DropDownBox OriginalCombo {
+		public ComboBox OriginalCombo {
 			get {
 				return originalComboBox;
 			}
 		}
 
-		public DropDownBox DiffCombo {
+		public ComboBox DiffCombo {
 			get {
 				return diffComboBox;
 			}
@@ -86,22 +88,102 @@ namespace MonoDevelop.VersionControl.Views
 				new MonoTextEditor (new TextDocument (), options),
 				new MonoTextEditor (new TextDocument (), options),
 			};
+			editors [0].Accessible.SetShouldIgnore (false);
+			editors [0].Accessible.SetRole (AtkCocoa.Roles.AXGroup);
+			editors [0].Accessible.SetTitle (GettextCatalog.GetString ("Comparing Revision Editor"));
+			editors [1].Accessible.SetShouldIgnore (false);
+			editors [1].Accessible.SetRole (AtkCocoa.Roles.AXGroup);
+			editors [1].Accessible.SetTitle (GettextCatalog.GetString ("Original Revision Editor"));
 
 			if (!viewOnly) {
-				originalComboBox = new DropDownBox ();
-				originalComboBox.WindowRequestFunc = CreateComboBoxSelector;
-				originalComboBox.Text = GettextCatalog.GetString ("Loading…");
+				revisionStore = new ListStore (typeof(Revision), typeof (string), typeof (string), typeof (string));
+				revisionStore.AppendValues (GettextCatalog.GetString ("Loading…"), "", "");
+
+				originalComboBox = new ComboBox (revisionStore);
+				originalComboBox.Changed += OriginalComboBox_Changed;
+				var revRenderer = new CellRendererText ();
+				revRenderer.WidthChars = 62;
+				originalComboBox.PackStart (revRenderer, false);
+				originalComboBox.AddAttribute (revRenderer, "text", 1);
+
+				var timeRenderer = new CellRendererText ();
+				timeRenderer.WidthChars = 21;
+
+				originalComboBox.PackStart (timeRenderer, false);
+				originalComboBox.AddAttribute (timeRenderer, "text", 2);
+
+				var authorRenderer = new CellRendererText ();
+				originalComboBox.PackStart (authorRenderer, true);
+				originalComboBox.AddAttribute (authorRenderer, "text", 3);
+
+				originalComboBox.Accessible.SetTitle (GettextCatalog.GetString ("Original Revision"));
+
+				originalComboBox.Active = 0;
 				originalComboBox.Sensitive = false;
-				originalComboBox.Tag = editors[1];
 
-				diffComboBox = new DropDownBox ();
-				diffComboBox.WindowRequestFunc = CreateComboBoxSelector;
-				diffComboBox.Text = GettextCatalog.GetString ("Loading…");
+				diffComboBox = new ComboBox (revisionStore);
+				diffComboBox.Changed += DiffComboBox_Changed;
+				diffComboBox.PackStart (revRenderer, false);
+				diffComboBox.AddAttribute (revRenderer, "text", 1);
+				diffComboBox.PackStart (timeRenderer, false);
+				diffComboBox.AddAttribute (timeRenderer, "text", 2);
+				diffComboBox.PackStart (authorRenderer, true);
+				diffComboBox.AddAttribute (authorRenderer, "text", 3);
+
+				diffComboBox.Accessible.SetTitle (GettextCatalog.GetString ("Compared Revision"));
+
+				diffComboBox.Active = 0;
 				diffComboBox.Sensitive = false;
-				diffComboBox.Tag = editors[0];
-
 				this.headerWidgets = new [] { diffComboBox, originalComboBox };
 			}
+		}
+
+		void DiffComboBox_Changed (object sender, EventArgs e)
+		{
+			Change (DiffEditor, diffComboBox.Active);
+		}
+
+		void OriginalComboBox_Changed (object sender, EventArgs e)
+		{
+			Change (MainEditor, originalComboBox.Active);
+		}
+
+		void Change (MonoTextEditor textEditor, int n)
+		{
+			if (n == 0) {
+				SetLocal (textEditor.GetTextEditorData ());
+				return;
+			}
+
+			RemoveLocal (textEditor.GetTextEditorData ());
+			textEditor.Document.IsReadOnly = true;
+
+			if (n == 1) {
+				if (textEditor == editors [0]) {
+					diffRevision = null;
+				} else {
+					originalRevision = null;
+				}
+				Task.Run (async () => {
+					try {
+						return await info.Item.Repository.GetBaseTextAsync (info.Item.Path);
+					} catch (Exception ex) {
+						var text = string.Format (GettextCatalog.GetString ("Error while getting the base text of {0}:\n{1}"), info.Item.Path, ex.ToString ());
+						await Runtime.RunInMainThread (() => MessageService.ShowError (text));
+						return text;
+					}
+				}).ContinueWith (t => {
+					var editor = textEditor;
+					if (editor.IsDisposed)
+						return;
+					editor.Document.Text = t.Result;
+					CreateDiff ();
+				}, Runtime.MainTaskScheduler);
+				return;
+			}
+
+			var rev = info.History [n - 2];
+			SetRevision (textEditor, rev);
 		}
 
 		protected override void OnSetVersionControlInfo (VersionControlDocumentInfo info)
@@ -111,15 +193,27 @@ namespace MonoDevelop.VersionControl.Views
 			base.OnSetVersionControlInfo (info);
 		}
 
+		const int LocalIndex = 0;
+
+		const int BaseIndex = 1;
+
 		void OnInfoUpdated (object sender, EventArgs args)
 		{
-			originalComboBox.Text = GettextCatalog.GetString ("Local");
-			diffComboBox.Text = GettextCatalog.GetString ("Base");
+			revisionStore.Clear ();
+			revisionStore.AppendValues (null, GettextCatalog.GetString ("Local"), "", "");
+			revisionStore.AppendValues (null, GettextCatalog.GetString ("Base"), "", "");
+			foreach (var revision in info.History) {
+				revisionStore.AppendValues (revision, revision.ToString (), revision.Time.ToString (), revision.Author);
+			}
+			originalComboBox.Active = LocalIndex;
+			diffComboBox.Active = BaseIndex;
 			originalComboBox.Sensitive = diffComboBox.Sensitive = true;
 		}
 
 		protected override void OnDestroyed ()
 		{
+			originalComboBox.Changed -= OriginalComboBox_Changed;
+			diffComboBox.Changed -= DiffComboBox_Changed;
 			info.Updated -= OnInfoUpdated;
 			base.OnDestroyed ();
 		}
@@ -211,7 +305,12 @@ namespace MonoDevelop.VersionControl.Views
 				Runtime.RunInMainThread (() => {
 					var box = toEditor == editors [0] ? diffComboBox : originalComboBox;
 					RemoveLocal (toEditor.GetTextEditorData ());
-					box.SetItem (string.Format (GettextCatalog.GetString ("Revision {0}\t{1}\t{2}"), rev, rev.Time, rev.Author), null, rev);
+					for (int i = 0; i < info.History.Length; i++) {
+						if (info.History [i].Time == rev.Time) {
+							box.Active = 2 + i;
+							break;
+						}
+					}
 					toEditor.Text = text;
 					IdeApp.Workbench.StatusBar.AutoPulse = false;
 					IdeApp.Workbench.StatusBar.EndProgress ();
@@ -223,98 +322,5 @@ namespace MonoDevelop.VersionControl.Views
 		}
 
 		internal Revision originalRevision, diffRevision;
-
-		class ComboBoxSelector : DropDownBoxListWindow.IListDataProvider
-		{
-			ComparisonWidget widget;
-			DropDownBox box;
-
-			public ComboBoxSelector (ComparisonWidget widget, DropDownBox box)
-			{
-				this.widget = widget;
-				this.box = box;
-
-			}
-
-			#region IListDataProvider implementation
-			public void Reset ()
-			{
-			}
-
-			public string GetMarkup (int n)
-			{
-				if (n == 0)
-					return GettextCatalog.GetString ("Local");
-				if (n == 1)
-					return GettextCatalog.GetString ("Base");
-				Revision rev = widget.info.History[n - 2];
-				return GLib.Markup.EscapeText (string.Format ("{0}\t{1}\t{2}", rev, rev.Time, rev.Author));
-			}
-
-			public Xwt.Drawing.Image GetIcon (int n)
-			{
-				return null;
-			}
-
-			public object GetTag (int n)
-			{
-				if (n < 2)
-					return null;
-				return widget.info.History[n - 2];
-			}
-
-			public void ActivateItem (int n)
-			{
-				var textEditor = (MonoTextEditor)box.Tag;
-				if (n == 0) {
-					box.SetItem (GettextCatalog.GetString ("Local"), null, new object());
-					widget.SetLocal (textEditor.GetTextEditorData ());
-					return;
-				}
-				widget.RemoveLocal (textEditor.GetTextEditorData ());
-				textEditor.Document.IsReadOnly = true;
-
-				if (n == 1) {
-					box.SetItem (GettextCatalog.GetString ("Base"), null, new object());
-					if (textEditor == widget.editors[0]) {
-						widget.diffRevision = null;
-					} else {
-						widget.originalRevision = null;
-					}
-					Task.Run (async () => {
-						try {
-							return await widget.info.Item.Repository.GetBaseTextAsync (widget.info.Item.Path);
-						} catch (Exception ex) {
-							var text = string.Format (GettextCatalog.GetString ("Error while getting the base text of {0}:\n{1}"), widget.info.Item.Path, ex.ToString ());
-							await Runtime.RunInMainThread (() => MessageService.ShowError (text));
-							return text;
-						}
-					}).ContinueWith (t => {
-						var editor = (MonoTextEditor)box.Tag;
-						if (editor.IsDisposed)
-							return;
-						editor.Document.Text = t.Result;
-						widget.CreateDiff ();
-					}, Runtime.MainTaskScheduler);
-					return;
-				}
-
-				Revision rev = widget.info.History[n - 2];
-				widget.SetRevision (textEditor, rev);
-			}
-
-			public int IconCount {
-				get {
-					return widget.info.History == null ? 2 : widget.info.History.Length + 2;
-				}
-			}
-			#endregion
-		}
-
-		Gtk.Window CreateComboBoxSelector (DropDownBox box)
-		{
-			DropDownBoxListWindow window = new DropDownBoxListWindow (new ComboBoxSelector (this, box));
-			return window;
-		}
 	}
 }

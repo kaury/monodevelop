@@ -499,8 +499,21 @@ namespace MonoDevelop.Ide.Desktop
 			proc.Start ();
 		}
 
-		public static bool AccessibilityInUse { get; protected set; }
+		static bool accessibilityInUse;
+		public static event EventHandler AccessibilityInUseChanged;
+		public static bool AccessibilityInUse {
+			get => accessibilityInUse;
+			protected set {
+				if (accessibilityInUse != value) {
+					accessibilityInUse = value;
+					AccessibilityInUseChanged?.Invoke (null, EventArgs.Empty);
+				}
+			}
+		}
+
 		public static bool AccessibilityKeyboardFocusInUse { get; protected set; }
+
+		internal virtual void MakeAccessibilityAnnouncement (string text) { }
 
 		internal virtual string GetNativeRuntimeDescription ()
 		{

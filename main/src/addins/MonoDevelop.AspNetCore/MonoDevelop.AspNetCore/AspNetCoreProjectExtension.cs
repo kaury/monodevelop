@@ -64,10 +64,16 @@ namespace MonoDevelop.AspNetCore
 				profile = launchProfileProvider.Profiles [key];
 			}
 
-			var aspnetconf = new AspNetCoreRunConfiguration (name, profile);
-			aspnetconf.LaunchProfileProvider = launchProfileProvider;
+			var aspnetconf = new AspNetCoreRunConfiguration (name, profile) {
+				LaunchProfileProvider = launchProfileProvider
+			};
+			if (aspNetCoreRunConfs.TryGetValue (name, out var existingConf)) {
+				// This can be called a few times with the same config at load time,
+				// so make sure we clean up the previous version
+				existingConf.SaveRequested -= Aspnetconf_Save;
+			}
 			aspnetconf.SaveRequested += Aspnetconf_Save;
-			aspNetCoreRunConfs.Add (name, aspnetconf);
+			aspNetCoreRunConfs [name] = aspnetconf;
 			return aspnetconf;
 		}
 
@@ -86,7 +92,7 @@ namespace MonoDevelop.AspNetCore
 
 		protected override bool SupportsObject (WorkspaceObject item)
 		{
-			return DotNetCoreSupportsObject (item) && IsWebProject ((DotNetProject)item);
+			return DotNetCoreSupportsObject (item) && SupportsLaunchSettings ((DotNetProject)item);
 		}
 
 		protected override bool IsSupportedFramework (TargetFrameworkMoniker framework)
@@ -172,24 +178,30 @@ namespace MonoDevelop.AspNetCore
 
 		protected override IEnumerable<ExecutionTarget> OnGetExecutionTargets (OperationContext ctx, ConfigurationSelector configuration, SolutionItemRunConfiguration runConfig)
 		{
-			var result = new List<ExecutionTarget> ();
-			foreach (var browser in IdeServices.DesktopService.GetApplications ("https://localhost", Ide.Desktop.DesktopApplicationRole.Viewer)) {
-				if (browser.IsDefault) {
-					if (Project.HasMultipleTargetFrameworks) {
-						result.InsertRange (0, GetMultipleTargetFrameworkExecutionTargets (browser));
+			if (IsWeb) {
+				var result = new ExecutionTargetGroup (GettextCatalog.GetString ("Browser"), "MonoDevelop.AspNetCore.BrowserExecutionTargets");
+				foreach (var browser in IdeServices.DesktopService.GetApplications ("https://localhost", Ide.Desktop.DesktopApplicationRole.Viewer)) {
+					if (browser.IsDefault) {
+						if (Project.HasMultipleTargetFrameworks) {
+							result.InsertRange (0, GetMultipleTargetFrameworkExecutionTargets (browser));
+						} else {
+							result.Insert (0, new AspNetCoreExecutionTarget (browser));
+						}
 					} else {
-						result.Insert (0, new AspNetCoreExecutionTarget (browser));
-					}
-				} else {
-					if (Project.HasMultipleTargetFrameworks) {
-						result.AddRange (GetMultipleTargetFrameworkExecutionTargets (browser));
-					} else {
-						result.Add (new AspNetCoreExecutionTarget (browser));
+						if (Project.HasMultipleTargetFrameworks) {
+							result.AddRange (GetMultipleTargetFrameworkExecutionTargets (browser));
+						} else {
+							result.Add (new AspNetCoreExecutionTarget (browser));
+						}
 					}
 				}
-			}
 
-			return result.Count > 0 ? result : base.OnGetExecutionTargets (configuration);
+				return result.Count > 0
+					? new ExecutionTarget [] { result }
+					: base.OnGetExecutionTargets (ctx, configuration, runConfig);
+			} else {
+				return base.OnGetExecutionTargets (ctx, configuration, runConfig);
+			}
 		}
 
 		IEnumerable<ExecutionTarget> GetMultipleTargetFrameworkExecutionTargets (DesktopApplication browser)

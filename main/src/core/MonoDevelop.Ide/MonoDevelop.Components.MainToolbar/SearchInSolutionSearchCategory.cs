@@ -59,18 +59,9 @@ namespace MonoDevelop.Components.MainToolbar
 		//		return (ISearchDataSource)new SearchInSolutionDataSource (searchPattern);
 		//	});
 		//} 
-		static readonly string[] tags = { "search" };
+		public override string [] Tags { get; } = { "search" };
 
-		public override string[] Tags {
-			get {
-				return tags;
-			}
-		}
-
-		public override bool IsValidTag (string tag)
-		{
-			return tag == "search";
-		}
+		public override bool IsValidTag (string tag) => tag == "search";
 
 		class SearchInSolutionSearchResult : SearchResult
 		{
@@ -92,7 +83,7 @@ namespace MonoDevelop.Components.MainToolbar
 			public override void Activate ()
 			{
 				var options = new FilterOptions ();
-				if (PropertyService.Get ("AutoSetPatternCasing", true))
+				if (PropertyService.Get ("AutoSetPatternCasing", false))
 					options.CaseSensitive = pattern.Pattern.Any (char.IsUpper);
 				FindInFilesDialog.SearchReplace (pattern.Pattern, null, new WholeSolutionScope (), options, null, null);
 			}

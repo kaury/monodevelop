@@ -284,36 +284,88 @@ namespace MonoDevelop.Ide.Gui.Pads.ProjectPad
 				files.Add (pf);
 			}
 
-			var removeFromProject = new AlertButton (GettextCatalog.GetString ("_Remove from Project"), Gtk.Stock.Remove);
 			string question;
-			string secondaryText = null;
+			bool fileExists = CheckAnyFileExists(files);
 
-			bool filesExist = CheckAnyFileExists (files);
-			if (filesExist) {
-				secondaryText = GettextCatalog.GetString ("The Delete option permanently removes the file from your hard disk. " +
-					"Click Remove from Project if you only want to remove it from your current solution.");
-			}
-			
-			if (hasChildren) {
-				if (files.Count == 1)
-					question = GettextCatalog.GetString ("Are you sure you want to remove the file {0} and " + 
-					                                     "its code-behind children from project {1}?",
-					                                     Path.GetFileName (files[0].Name), files[0].Project.Name);
-				else
-					question = GettextCatalog.GetString ("Are you sure you want to remove the selected files and " + 
-					                                     "their code-behind children from the project?");
+			if (CheckAllLinkedFile (files)) {
+				RemoveFilesFromProject (false, files);
 			} else {
-				if (files.Count == 1)
-					question = GettextCatalog.GetString ("Are you sure you want to remove file {0} from project {1}?",
-					                                     Path.GetFileName (files[0].Name), files[0].Project.Name);
+				if (hasChildren) {
+					if (files.Count == 1) {
+						if (fileExists)
+							question = GettextCatalog.GetString ("Are you sure you want to delete the file {0} and " +
+															 "its code-behind children from project {1}?",
+															 Path.GetFileName (files [0].Name), files [0].Project.Name);
+						else
+							question = GettextCatalog.GetString ("Are you sure you want to remove the file {0} and " +
+															 "its code-behind children from project {1}?",
+															 Path.GetFileName (files [0].Name), files [0].Project.Name);
+					} else {
+						if (fileExists)
+							question = GettextCatalog.GetString ("Are you sure you want to delete the selected files and " +
+															 "their code-behind children from the project?");
+						else
+							question = GettextCatalog.GetString ("Are you sure you want to remove the selected files and " +
+															 "their code-behind children from the project?");
+					}
+				} else {
+					if (files.Count == 1) {
+						if (fileExists)
+							question = GettextCatalog.GetString ("Are you sure you want to delete file {0} from project {1}?",
+															 Path.GetFileName (files [0].Name), files [0].Project.Name);
+						else
+							question = GettextCatalog.GetString ("Are you sure you want to remove file {0} from project {1}?",
+															 Path.GetFileName (files [0].Name), files [0].Project.Name);
+
+					} else {
+						if (fileExists)
+							question = GettextCatalog.GetString ("Are you sure you want to delete the selected files from the project?");
+						else
+							question = GettextCatalog.GetString ("Are you sure you want to remove the selected files from the project?");
+					}
+				}
+
+				var result = MessageService.AskQuestion (question, new [] { AlertButton.Cancel, fileExists ? AlertButton.Delete : AlertButton.Remove });
+				if (result == AlertButton.Cancel)
+					return;
 				else
-					question = GettextCatalog.GetString ("Are you sure you want to remove the selected files from the project?");
+					RemoveFilesFromProject (fileExists, files);
 			}
 
-			var result = MessageService.AskQuestion (question, secondaryText, GetDeleteConfirmationButtons (filesExist, removeFromProject));
-			if (result != removeFromProject && result != AlertButton.Delete) 
-				return;
+			IdeApp.ProjectOperations.SaveAsync (projects);
+		}
 
+		[CommandUpdateHandler (EditCommands.Delete)]
+		[AllowMultiSelection]
+		void OnUpdateDeleteMultipleItems (CommandInfo info)
+		{
+			var files = new List<ProjectFile> ();
+			foreach (var node in CurrentNodes) {
+				var pf = (ProjectFile)node.DataItem;
+				files.Add (pf);
+			}
+			if (!CheckAnyFileExists(files))
+				info.Text = GettextCatalog.GetString ("Remove");
+		}
+
+		[CommandHandler (ProjectCommands.ExcludeFromProject)]
+		[AllowMultiSelection]
+		void OnExcludeFilesFromProject ()
+		{
+			var projects = new Set<SolutionItem> ();
+			var files = new List<ProjectFile> ();
+
+			foreach (var node in CurrentNodes) {
+				var pf = (ProjectFile)node.DataItem;
+				projects.Add (pf.Project);
+				files.Add (pf);
+			}
+			RemoveFilesFromProject (false, files);
+			IdeApp.ProjectOperations.SaveAsync (projects);
+		}
+
+		public void RemoveFilesFromProject (bool delete, List<ProjectFile> files)
+		{
 			foreach (var file in files) {
 				var project = file.Project;
 				var inFolder = project.Files.GetFilesInVirtualPath (file.ProjectVirtualPath.ParentDirectory).ToList ();
@@ -325,22 +377,33 @@ namespace MonoDevelop.Ide.Gui.Pads.ProjectPad
 					folderFile.Subtype = Subtype.Directory;
 					project.Files.Add (folderFile);
 				}
-
 				var children = FileNestingService.GetDependentOrNestedTree (file);
 				if (children != null) {
 					foreach (var child in children.ToArray ()) {
-						project.Files.Remove (child);
-						if (result == AlertButton.Delete)
+						// Delete file before removing them from the project to avoid Remove items being added
+						// if the project is currently being saved in memory or to disk.
+						if (delete)
 							FileService.DeleteFile (child.Name);
+						project.Files.Remove (child);
 					}
 				}
-			
-				project.Files.Remove (file);
-				if (result == AlertButton.Delete && !file.IsLink)
-					FileService.DeleteFile (file.Name);
-			}
 
-			IdeApp.ProjectOperations.SaveAsync (projects);
+				// Delete file before removing them from the project to avoid Remove items being added
+				// if the project is currently being saved in memory or to disk.
+				if (delete && !file.IsLink && File.Exists (file.Name))
+					FileService.DeleteFile (file.Name);
+				project.Files.Remove (file);
+			}
+		}
+
+		[CommandUpdateHandler (ProjectCommands.ExcludeFromProject)]
+		void UpdateExcludeFiles (CommandInfo info)
+		{
+			info.Enabled = CanDeleteMultipleItems ();
+			foreach (var node in CurrentNodes) {
+				var pf = (ProjectFile)node.DataItem;
+				info.Visible = !pf.IsLink;
+			}
 		}
 
 		static bool CheckAnyFileExists (IEnumerable<ProjectFile> files)
@@ -360,19 +423,20 @@ namespace MonoDevelop.Ide.Gui.Pads.ProjectPad
 			return false;
 		}
 
-		static AlertButton[] GetDeleteConfirmationButtons (bool includeDelete, AlertButton removeFromProject)
+		static bool CheckAllLinkedFile (IEnumerable<ProjectFile> files)
 		{
-			if (includeDelete)
-				return new [] { AlertButton.Delete, AlertButton.Cancel, removeFromProject };
-			return new [] { AlertButton.Cancel, removeFromProject };
+			foreach (ProjectFile file in files) {
+				if (!file.IsLink)
+					return false;
+			}
+			return true;
 		}
-		
+
 		[CommandUpdateHandler (EditCommands.Delete)]
 		public void UpdateRemoveItem (CommandInfo info)
 		{
 			//don't allow removing children from parents. The parent can be removed and will remove the whole group.
 			info.Enabled = CanDeleteMultipleItems ();
-			info.Text = GettextCatalog.GetString ("Remove");
 		}
 		
 		[CommandHandler (ViewCommands.OpenWithList)]

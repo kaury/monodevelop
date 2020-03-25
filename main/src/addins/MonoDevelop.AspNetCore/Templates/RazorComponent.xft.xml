@@ -10,7 +10,7 @@
 		<_Category>ASP.NET Core</_Category>
 		<LanguageName>C#</LanguageName>
 		<DefaultFilename>Index</DefaultFilename>
-		<_Description>A reusable UI component implemented with Razor</_Description>
+		<_Description>Creates a reusable UI component implemented with Razor.</_Description>
 	</TemplateConfiguration>
 
 	<Conditions>
@@ -22,6 +22,6 @@
 	
 	<!-- Template Content -->
 	<TemplateFiles>
-		<File name="${Name}.razor" src="RazorComponent.razor" BuildAction="Compile" />
+		<File name="${Name}.razor" src="RazorComponent.razor" />
 	</TemplateFiles>
 </Template>

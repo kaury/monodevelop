@@ -429,7 +429,7 @@ namespace MonoDevelop.Ide
 
 		Task IBuildTarget.PrepareExecution (ProgressMonitor monitor, ExecutionContext context, ConfigurationSelector configuration)
 		{
-			return Task.FromResult (0);
+			return Task.CompletedTask;
 		}
 
 		public Task Execute (ProgressMonitor monitor, ExecutionContext context, ConfigurationSelector configuration)
@@ -879,7 +879,7 @@ namespace MonoDevelop.Ide
 			// Restore local configuration data
 			
 			try {
-				var enabled = FeatureSwitchService.IsFeatureEnabled ("RUNTIME_SELECTOR");
+				var enabled = FeatureSwitchService.IsFeatureEnabled (FeatureSwitches.RuntimeSelectorFeatureSwitchName);
 
 				if (enabled.GetValueOrDefault ()) {
 					WorkspaceUserData data = item.UserProperties.GetValue<WorkspaceUserData> ("MonoDevelop.Ide.Workspace");
@@ -1254,15 +1254,14 @@ namespace MonoDevelop.Ide
 					LastWorkspaceItemClosed (this, EventArgs.Empty);
 			}
 
-			UnloadWorkspaceTypeSystem (item).Ignore ();
+			UnloadWorkspaceTypeSystem (item);
 
 			NotifyDescendantItemRemoved (this, args);
 		}
 
-		async Task UnloadWorkspaceTypeSystem (WorkspaceItem item)
+		void UnloadWorkspaceTypeSystem (WorkspaceItem item)
 		{
-			var typeSystem = await serviceProvider.GetService<TypeSystemService> ();
-			typeSystem.Unload (item);
+			serviceProvider.PeekService<TypeSystemService> ()?.Unload (item);
 		}
 
 		void SubscribeSolution (Solution sol)

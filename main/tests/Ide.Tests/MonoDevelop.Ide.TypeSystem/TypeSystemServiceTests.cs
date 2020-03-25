@@ -29,6 +29,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using MonoDevelop.Core;
+using MonoDevelop.Ide.Gui.Documents;
 using MonoDevelop.Projects;
 using NUnit.Framework;
 using UnitTests;
@@ -53,7 +54,9 @@ namespace MonoDevelop.Ide.TypeSystem
 			var symlinkFileSource = Path.GetFullPath (Path.Combine (solutionDirectory, data [1]));
 
 			File.Delete (symlinkFileName);
-			Process.Start ("ln", $"-s '{symlinkFileSource}' '{symlinkFileName}'").WaitForExit ();
+			Process.Start (new ProcessStartInfo ("ln", $"-s '{symlinkFileSource}' '{symlinkFileName}'") {
+				UseShellExecute = false,
+			}).WaitForExit ();
 
 			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
 			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
@@ -77,7 +80,7 @@ namespace MonoDevelop.Ide.TypeSystem
 			FilePath solFile = Util.GetSampleProject ("multi-target-netframework", "multi-target.sln");
 
 			CreateNuGetConfigFile (solFile.ParentDirectory);
-			RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
+			Util.RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
 
 			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
 			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
@@ -159,7 +162,7 @@ namespace MonoDevelop.Ide.TypeSystem
 			FilePath solFile = Util.GetSampleProject ("multi-target-project-ref", "multi-target.sln");
 
 			CreateNuGetConfigFile (solFile.ParentDirectory);
-			RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
+			Util.RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
 
 			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
 			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
@@ -204,7 +207,7 @@ namespace MonoDevelop.Ide.TypeSystem
 			FilePath solFile = Util.GetSampleProject ("multi-target-netframework", "multi-target.sln");
 
 			CreateNuGetConfigFile (solFile.ParentDirectory);
-			RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
+			Util.RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
 
 			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
 			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
@@ -244,7 +247,7 @@ namespace MonoDevelop.Ide.TypeSystem
 			FilePath solFile = Util.GetSampleProject ("multi-target", "multi-target.sln");
 
 			CreateNuGetConfigFile (solFile.ParentDirectory);
-			RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
+			Util.RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
 
 			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
 			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
@@ -301,6 +304,98 @@ namespace MonoDevelop.Ide.TypeSystem
 			}
 		}
 
+		/// <summary>
+		/// Simulates a .NET Standard sdk project being change to a multi-target project in the text editor, saved,
+		/// then adding a new file to the project. Previously the Project.Modified event handler would be removed
+		/// and the type system would never update itself.
+		/// </summary>
+		[Test]
+		public async Task SingleTargetFramework_ReloadProjectAfterChangingToMultiTargetFramework_TypeSystemRespondsToProjectModifiedEvents ()
+		{
+			FilePath solFile = Util.GetSampleProject ("multi-target-reload", "multi-target-reload.sln");
+
+			CreateNuGetConfigFile (solFile.ParentDirectory);
+			Util.RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
+
+			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
+			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
+				try {
+					var project = sol.GetAllProjects ().Single ();
+
+					var projectIds = ws.CurrentSolution.ProjectIds.ToArray ();
+					var projects = ws.CurrentSolution.Projects.ToArray ();
+
+					// Should be one Roslyn project.
+					Assert.AreEqual (1, projectIds.Length);
+					Assert.AreEqual (1, projects.Length);
+
+					var updatedProjectFileName = project.FileName.ChangeName ("multi-target-reload");
+
+					string xml = File.ReadAllText (updatedProjectFileName);
+					File.WriteAllText (project.FileName, xml);
+
+					var reloadedProject = (DotNetProject)await sol.RootFolder.ReloadItem (Util.GetMonitor (), project);
+
+					// Try a few times since the type system needs time to reload
+					const int timeout = 10000; // ms
+					int howLong = 0;
+					const int interval = 200; // ms
+
+
+					while (true) {
+						var newProjectIds = ws.CurrentSolution.ProjectIds.ToArray ();
+						projects = ws.CurrentSolution.Projects.ToArray ();
+
+						var netstandardProject = projects.FirstOrDefault (p => p.Name == "netstandard (netstandard2.0)");
+						var netframeworkProject = projects.FirstOrDefault (p => p.Name == "netstandard (net462)");
+						if (netframeworkProject != null && netstandardProject != null) {
+							Assert.AreEqual (2, newProjectIds.Length);
+							Assert.AreEqual (2, projects.Length);
+							break;
+						}
+
+						if (howLong >= timeout) {
+							Assert.Fail ("Timed out waiting for type system information to be updated.");
+						}
+
+						await Task.Delay (interval);
+						howLong += interval;
+					}
+
+					// Add a new file.
+					var projectFileName = reloadedProject.BaseDirectory.Combine ("Test.cs");
+					File.WriteAllText (projectFileName, "class Test { }");
+
+					var projectFile = new ProjectFile (projectFileName, BuildAction.Compile);
+					reloadedProject.Files.Add (projectFile);
+
+					howLong = 0;
+
+					while (true) {
+						projects = ws.CurrentSolution.Projects.ToArray ();
+
+						var netstandardProject = projects.FirstOrDefault (p => p.Name == "netstandard (netstandard2.0)");
+						var netframeworkProject = projects.FirstOrDefault (p => p.Name == "netstandard (net462)");
+
+						if (netstandardProject.Documents.Any (d => d.Name == "Test.cs") &&
+							netframeworkProject.Documents.Any (d => d.Name == "Test.cs")) {
+							// OK - document registered with type system service.
+							return;
+						}
+
+						if (howLong >= timeout) {
+							Assert.Fail ("Timed out waiting for type system information to be updated after adding file.");
+						}
+
+						await Task.Delay (interval);
+						howLong += interval;
+					}
+				} finally {
+					TypeSystemServiceTestExtensions.UnloadSolution (sol);
+				}
+			}
+		}
+
 		[Test]
 		public async Task CSharpFile_BuildActionNone_FileNotUsed ()
 		{
@@ -328,7 +423,7 @@ namespace MonoDevelop.Ide.TypeSystem
 			FilePath solFile = Util.GetSampleProject ("netstandard-project", "NetStandardTest.sln");
 
 			CreateNuGetConfigFile (solFile.ParentDirectory);
-			RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
+			Util.RunMSBuild ($"/t:Restore /p:RestoreDisableParallel=true \"{solFile}\"");
 
 			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
 			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
@@ -344,6 +439,144 @@ namespace MonoDevelop.Ide.TypeSystem
 				} finally {
 					TypeSystemServiceTestExtensions.UnloadSolution (sol);
 				}
+			}
+		}
+
+		[Test]
+		public async Task AdditionalFiles_EditorConfigFiles ()
+		{
+			FilePath solFile = Util.GetSampleProject ("additional-files", "additional-files.sln");
+
+			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
+			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
+				try {
+					var project = sol.GetAllProjects ().Single ();
+
+					var projectInfo = ws.CurrentSolution.Projects.Single ();
+					var additionalDocs = projectInfo.AdditionalDocuments.ToArray ();
+					var editorConfigDocs = projectInfo.AnalyzerConfigDocuments.ToArray ();
+
+					FilePath expectedAdditionalFileName = project.BaseDirectory.Combine ("additional-file.txt");
+					FilePath expectedEditorConfigFileName = solFile.ParentDirectory.Combine (".editorconfig");
+
+					Assert.IsTrue (additionalDocs.Any (d => d.FilePath == expectedAdditionalFileName));
+					Assert.IsTrue (editorConfigDocs.Any (d => d.FilePath == expectedEditorConfigFileName));
+
+				} finally {
+					TypeSystemServiceTestExtensions.UnloadSolution (sol);
+				}
+			}
+		}
+
+		[Test]
+		public async Task EditorConfigFile_ModifiedExternally ()
+		{
+			FilePath solFile = Util.GetSampleProject ("additional-files", "additional-files.sln");
+
+			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
+			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
+				try {
+					var project = sol.GetAllProjects ().Single ();
+
+					FilePath editorConfigFileName = solFile.ParentDirectory.Combine (".editorconfig");
+					var projectInfo = ws.CurrentSolution.Projects.Single ();
+					var editorConfigDoc = projectInfo.AnalyzerConfigDocuments.Single (d => d.FilePath == editorConfigFileName);
+
+					bool analyzerConfigDocumentChanged = false;
+					ws.WorkspaceChanged += (sender, e) => {
+						if (e.DocumentId == editorConfigDoc.Id &&
+							e.Kind == Microsoft.CodeAnalysis.WorkspaceChangeKind.AnalyzerConfigDocumentChanged) {
+							analyzerConfigDocumentChanged = true;
+						}
+					};
+
+					// Add error style to .editorconfig
+					string contents =
+						"root = true\r\n" +
+						"\r\n" +
+						"[*.cs]\r\n" +
+						"csharp_style_var_for_built_in_types = true:error\r\n";
+					File.WriteAllText (editorConfigFileName, contents);
+					FileService.NotifyFileChanged (editorConfigFileName);
+
+					Func<bool> action = () => analyzerConfigDocumentChanged;
+					await AssertIsTrueWithTimeout (action, "Timed out waiting for analyzer config file changed event", 10000);
+
+				} finally {
+					TypeSystemServiceTestExtensions.UnloadSolution (sol);
+				}
+			}
+		}
+
+		[Test]
+		public async Task EditorConfigFile_ModifiedInTextEditor ()
+		{
+			FilePath solFile = Util.GetSampleProject ("additional-files", "additional-files.sln");
+
+			using (var sol = (Solution)await Services.ProjectService.ReadWorkspaceItem (Util.GetMonitor (), solFile))
+			using (var ws = await TypeSystemServiceTestExtensions.LoadSolution (sol)) {
+				try {
+					var project = sol.GetAllProjects ().Single ();
+
+					FilePath editorConfigFileName = solFile.ParentDirectory.Combine (".editorconfig");
+					var textFileModel = new TextBufferFileModel ();
+					var mimeType = MimeTypeCatalog.Instance.FindMimeTypeForFile (editorConfigFileName);
+					textFileModel.CreateNew (editorConfigFileName, mimeType?.Id);
+
+					var projectInfo = ws.CurrentSolution.Projects.Single ();
+					Microsoft.CodeAnalysis.AnalyzerConfigDocument editorConfigDoc =
+						projectInfo.AnalyzerConfigDocuments.Single (d => d.FilePath == editorConfigFileName);
+
+					int analyzerConfigDocumentChangedCount = 0;
+					ws.WorkspaceChanged += (sender, e) => {
+						if (e.DocumentId == editorConfigDoc.Id &&
+							e.Kind == Microsoft.CodeAnalysis.WorkspaceChangeKind.AnalyzerConfigDocumentChanged) {
+							analyzerConfigDocumentChangedCount++;
+						}
+					};
+
+					using (var fileRegistration = IdeApp.TypeSystemService.RegisterOpenDocument (
+						null, // No owner.
+						editorConfigFileName,
+						textFileModel.TextBuffer)) {
+
+						Assert.IsTrue (ws.IsDocumentOpen (editorConfigDoc.Id));
+
+						Func<bool> action = () => analyzerConfigDocumentChangedCount == 1;
+						await AssertIsTrueWithTimeout (action, "Timed out waiting for analyzer config file changed event on opening file", 100000);
+
+						// Add error style to .editorconfig
+						string contents =
+							"root = true\r\n" +
+							"\r\n" +
+							"[*.cs]\r\n" +
+							"csharp_style_var_for_built_in_types = true:error\r\n";
+						textFileModel.SetText (contents);
+						await textFileModel.Save ();
+
+						action = () => analyzerConfigDocumentChangedCount == 2;
+						await AssertIsTrueWithTimeout (action, "Timed out waiting for analyzer config file changed event", 100000);
+					}
+					// After the file registration is disposed the document should be closed.
+					Assert.IsFalse (ws.IsDocumentOpen (editorConfigDoc.Id));
+				} finally {
+					TypeSystemServiceTestExtensions.UnloadSolution (sol);
+				}
+			}
+		}
+
+		async Task AssertIsTrueWithTimeout (Func<bool> action, string message, int timeout)
+		{
+			int howLong = 0;
+			const int interval = 200; // ms
+
+			while (!action ()) {
+				if (howLong >= timeout) {
+					Assert.Fail (message);
+				}
+
+				await Task.Delay (interval);
+				howLong += interval;
 			}
 		}
 
@@ -364,13 +597,6 @@ namespace MonoDevelop.Ide.TypeSystem
 				"</configuration>";
 
 			File.WriteAllText (fileName, xml);
-		}
-
-		void RunMSBuild (string arguments)
-		{
-			var process = Process.Start ("msbuild", arguments);
-			Assert.IsTrue (process.WaitForExit (240000), "Timed out waiting for MSBuild.");
-			Assert.AreEqual (0, process.ExitCode, $"msbuild {arguments} failed");
 		}
 	}
 }

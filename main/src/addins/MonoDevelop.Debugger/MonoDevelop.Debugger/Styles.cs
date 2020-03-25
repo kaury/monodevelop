@@ -42,6 +42,7 @@ namespace MonoDevelop.Debugger
 		public static Color PreviewVisualizerBackgroundColor { get; internal set; }
 		public static Color PreviewVisualizerTextColor { get; internal set; }
 		public static Color PreviewVisualizerHeaderTextColor { get; internal set; }
+		public static Color BreakpointPropertiesSecondaryTextColor { get; internal set; }
 
 		public static ExceptionCaughtDialogStyle ExceptionCaughtDialog { get; internal set; }
 
@@ -56,6 +57,7 @@ namespace MonoDevelop.Debugger
 			public Color TreeSelectedBackgroundColor { get; internal set; }
 			public Color TreeSelectedTextColor { get; internal set; }
 			public Color ValueTreeBackgroundColor { get; internal set; }
+			public Color BottomPaddingBackgroundColor { get; internal set; }
 		}
 
 		static Styles ()
@@ -85,6 +87,9 @@ namespace MonoDevelop.Debugger
 				ExceptionCaughtDialog.LineNumberTextColor = Color.FromName ("#707070");
 				ExceptionCaughtDialog.ExternalCodeTextColor = Color.FromName ("#707070");
 				ExceptionCaughtDialog.ValueTreeBackgroundColor = Color.FromName ("#ffffff");
+				ExceptionCaughtDialog.BottomPaddingBackgroundColor = Color.FromName ("#ececec");
+
+				BreakpointPropertiesSecondaryTextColor = Color.FromName ("#707070");
 			} else {
 				ObjectValueTreeValuesButtonBackground = Color.FromName ("#555b65");
 				ObjectValueTreeValuesButtonText = Color.FromName ("#ace2ff");
@@ -96,6 +101,9 @@ namespace MonoDevelop.Debugger
 				ExceptionCaughtDialog.LineNumberTextColor = Color.FromName ("#b4b4b4");
 				ExceptionCaughtDialog.ExternalCodeTextColor = Color.FromName ("#b4b4b4");
 				ExceptionCaughtDialog.ValueTreeBackgroundColor = Color.FromName ("#525252");
+				ExceptionCaughtDialog.BottomPaddingBackgroundColor = ObjectValueTreeActiveBackgroundColor;
+
+				BreakpointPropertiesSecondaryTextColor = Color.FromName ("#b4b4b4");
 			}
 
 			//Disabled state

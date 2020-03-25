@@ -437,6 +437,49 @@ namespace MonoDevelop.Components.Commands
 			}
 			return false;
 		}
+
+		void SimulateKeyDownInView (AppKit.NSView view, AppKit.NSEvent currentEvent, AppKit.NSWindow window)
+		{
+			if (currentEvent.KeyCode == (ushort)AppKit.NSKey.Tab) {
+				var expectedKeyView = FindValidKeyView (view);
+				AppKit.NSView next = null;
+				if (currentEvent.ModifierFlags.HasFlag (AppKit.NSEventModifierMask.ShiftKeyMask)) {
+					next = expectedKeyView.PreviousValidKeyView;
+				} else {
+					next = expectedKeyView.NextValidKeyView;
+				}
+
+				view.KeyDown (currentEvent);
+				if (next != null && window?.FirstResponder != next) {
+					window.MakeFirstResponder (next);
+				}
+			} else {
+				view.KeyDown (currentEvent);
+			}
+		}
+
+		private void SimulateViewKeyActionBehaviour (AppKit.NSView view, AppKit.NSEvent currentEvent)
+		{
+			if (view is AppKit.NSButton btn && (currentEvent.KeyCode == (ushort)AppKit.NSKey.Space || currentEvent.KeyCode == (ushort)AppKit.NSKey.Return)) {
+				btn.PerformClick (btn);
+			}
+		}
+
+		static AppKit.NSView FindValidKeyView (AppKit.NSView view)
+		{
+			if (view == null)
+				return null;
+
+			if (view.AcceptsFirstResponder ()) {
+				if (view.Superview?.Superview is AppKit.NSControl control && control.CurrentEditor == view) {
+					return FindValidKeyView (control);
+				}
+				return view;
+			}
+
+			return FindValidKeyView (view.Superview);
+		}
+
 #endif
 
 		[GLib.ConnectBefore]
@@ -453,6 +496,8 @@ namespace MonoDevelop.Components.Commands
 			var window = currentEvent?.Window;
 			var firstResponder = window?.FirstResponder;
 
+			bool retVal = false;
+
 			// GTK eats FlagsChanged events and this is just to inform
 			// modifier keys changed state, hence always send it to
 			// focused view
@@ -467,10 +512,22 @@ namespace MonoDevelop.Components.Commands
 			// KeyboardShortcut[] accels = 
 			KeyBindingManager.AccelsFromKey (e.Event, out complete);
 
+			if (currentEvent != null &&
+				currentEvent.Type == AppKit.NSEventType.KeyUp &&
+				firstResponder is AppKit.NSView view &&
+				view != window.ContentView) {
+
+				view.KeyUp (currentEvent);
+				SimulateViewKeyActionBehaviour (view, currentEvent);
+				retVal = true;
+			}
+
 			if (!complete) {
 				// incomplete accel
 				NotifyIncompleteKeyReleased (e.Event);
 			}
+
+			e.RetVal = retVal;
 		}
 
 		internal bool ProcessKeyEvent (Gdk.EventKey ev)
@@ -507,13 +564,14 @@ namespace MonoDevelop.Components.Commands
 
 			if (currentEvent != null &&
 				currentEvent.Type == AppKit.NSEventType.KeyDown &&
-				firstResponder != null &&
-				firstResponder != window.ContentView) {
-				firstResponder.KeyDown (currentEvent);
+				firstResponder is AppKit.NSView view &&
+				view != window.ContentView) {
+
+				SimulateKeyDownInView (view, currentEvent, window);
+				
 				return true;
 			}
 #endif
-
 			return false;
 		}
 
@@ -1516,6 +1574,7 @@ namespace MonoDevelop.Components.Commands
 			return DispatchCommand (commandId, dataItem, initialTarget, source, null, sourceUpdateInfo);
 		}
 
+		readonly Stopwatch dispatchStopwatch = new Stopwatch ();
 		internal bool DispatchCommand (object commandId, object dataItem, object initialTarget, CommandSource source, uint? time, CommandInfo sourceUpdateInfo)
 		{
 			// (*) Before executing the command, DispatchCommand executes the command update handler to make sure the command is enabled in the given
@@ -1603,22 +1662,24 @@ namespace MonoDevelop.Components.Commands
 							if (cmd.CommandArray) {
 								handlers.Add (delegate {
 									OnCommandActivating (commandId, info, dataItem, localTarget, source);
-									var t = DateTime.Now;
+									dispatchStopwatch.Restart ();
 									try {
 										chi.Run (localTarget, cmd, dataItem);
 									} finally {
-										OnCommandActivated (commandId, info, dataItem, localTarget, source, DateTime.Now - t);
+										dispatchStopwatch.Stop ();
+										OnCommandActivated (commandId, info, dataItem, localTarget, source, dispatchStopwatch.Elapsed);
 									}
 								});
 							}
 							else {
 								handlers.Add (delegate {
 									OnCommandActivating (commandId, info, dataItem, localTarget, source);
-									var t = DateTime.Now;
+									dispatchStopwatch.Restart ();
 									try {
 										chi.Run (localTarget, cmd);
 									} finally {
-										OnCommandActivated (commandId, info, dataItem, localTarget, source, DateTime.Now - t);
+										dispatchStopwatch.Stop ();
+										OnCommandActivated (commandId, info, dataItem, localTarget, source, dispatchStopwatch.Elapsed);
 									}
 								});
 							}
@@ -1675,11 +1736,12 @@ namespace MonoDevelop.Components.Commands
 			}
 			OnCommandActivating (cmd.Id, info, dataItem, target, source);
 
-			var t = DateTime.Now;
+			dispatchStopwatch.Restart ();
 			try {
 				cmd.DefaultHandler.InternalRun (dataItem);
 			} finally {
-				OnCommandActivated (cmd.Id, info, dataItem, target, source, DateTime.Now - t);
+				dispatchStopwatch.Stop ();
+				OnCommandActivated (cmd.Id, info, dataItem, target, source, dispatchStopwatch.Elapsed);
 			}
 			return true;
 		}
@@ -1690,7 +1752,7 @@ namespace MonoDevelop.Components.Commands
 				CommandActivating (this, new CommandActivationEventArgs (commandId, commandInfo, dataItem, target, source));
 		}
 		
-		void OnCommandActivated (object commandId, CommandInfo commandInfo, object dataItem, object target, CommandSource source, TimeSpan time)
+		internal void OnCommandActivated (object commandId, CommandInfo commandInfo, object dataItem, object target, CommandSource source, TimeSpan time)
 		{
 			if (CommandActivated != null)
 				CommandActivated (this, new CommandActivationEventArgs (commandId, commandInfo, dataItem, target, source, time));
@@ -2242,10 +2304,18 @@ namespace MonoDevelop.Components.Commands
 		
 		Window GetActiveWindow (Window win)
 		{
-			Gtk.Window [] wins = Gtk.Window.ListToplevels ();
-
-			bool hasFocus = false;
 			bool lastFocusedExists = lastFocused == null;
+			bool hasFocus = false;
+#if MAC
+			var nsWindow = AppKit.NSApplication.SharedApplication.KeyWindow;
+			hasFocus = nsWindow != null;
+			if (hasFocus) {
+				lastFocusedExists |= lastFocused?.nativeWidget == nsWindow;
+				lastFocused = win = nsWindow;
+			} else {
+#endif
+
+			Gtk.Window [] wins = Gtk.Window.ListToplevels ();
 			Gtk.Window newFocused = null;
 			foreach (Gtk.Window w in wins) {
 				if (w.Visible) {
@@ -2262,18 +2332,9 @@ namespace MonoDevelop.Components.Commands
 				}
 			}
 
-#if MAC
-			if (!hasFocus) {
-				var nsWindow = AppKit.NSApplication.SharedApplication.KeyWindow;
-				hasFocus = nsWindow != null;
-				if (hasFocus) {
-					lastFocused = win = nsWindow;
-				}
-			} else {
-				lastFocused = newFocused;
-			}
-#else
 			lastFocused = newFocused;
+#if MAC
+			}
 #endif
 
 			UpdateAppFocusStatus (hasFocus, lastFocusedExists);
@@ -2281,8 +2342,7 @@ namespace MonoDevelop.Components.Commands
 			if (win != null && win.IsRealized) {
 				RegisterTopWindow (win);
 				return win;
-			}
-			else
+			} else
 				return null;
 		}
 		
@@ -2364,7 +2424,8 @@ namespace MonoDevelop.Components.Commands
 		Gtk.Widget GetFocusedChild (Control widget)
 		{
 			Gtk.Container container;
-
+			if (widget?.nativeWidget is AppKit.NSWindow window)
+				widget = Mac.GtkMacInterop.GetGtkWindow (window)?.Child;
 			do {
 				container = widget?.nativeWidget is Gtk.Container ? widget.GetNativeWidget<Gtk.Container> () : null;
 				if (container != null) {
@@ -2376,7 +2437,7 @@ namespace MonoDevelop.Components.Commands
 				}
 			} while (container != null);
 
-			return widget.nativeWidget is Gtk.Widget ? widget : null;
+			return widget?.nativeWidget is Gtk.Widget ? widget : null;
 		}
 
 #if MAC
@@ -3152,7 +3213,8 @@ namespace MonoDevelop.Components.Commands
 		Keybinding,
 		Unknown,
 		MacroPlayback,
-		WelcomePage
+		WelcomePage,
+		Startup,
 	}
 	
 	public class CommandTargetRoute

@@ -75,7 +75,7 @@ namespace MonoDevelop.DotNetCore
 
 		protected override bool SupportsObject (WorkspaceObject item)
 		{
-			return DotNetCoreSupportsObject (item) && !IsWebProject ((DotNetProject)item);
+			return DotNetCoreSupportsObject (item) && !SupportsLaunchSettings ((DotNetProject)item);
 		}
 
 		protected bool DotNetCoreSupportsObject (WorkspaceObject item)
@@ -204,21 +204,24 @@ namespace MonoDevelop.DotNetCore
 			TargetFrameworkMoniker framework,
 			SolutionItemRunConfiguration runConfiguration)
 		{
+			var requiredVersion = DotNetCoreVersion.Parse (Project.TargetFramework.Id.Version);
 			if (DotNetCoreRuntime.IsMissing) {
-				return ShowCannotExecuteDotNetCoreApplicationDialog ();
+				return ShowCannotExecuteDotNetCoreApplicationDialog (DotNetCoreRuntime.GetNotInstalledVersionMessage (requiredVersion.OriginalString), requiredVersion);
+			}
+			if (Project.TargetFramework.IsNetCoreApp () &&
+				!DotNetCoreRuntime.Versions.Any (x => x.OriginalString.StartsWith (Project.TargetFramework.Id.Version, StringComparison.OrdinalIgnoreCase))) {
+				return ShowCannotExecuteDotNetCoreApplicationDialog (DotNetCoreRuntime.GetNotInstalledVersionMessage (requiredVersion.OriginalString), requiredVersion);
 			}
 
 			return base.OnExecute (monitor, context, configuration, framework, runConfiguration);
 		}
 
-		Task ShowCannotExecuteDotNetCoreApplicationDialog ()
+		Task ShowCannotExecuteDotNetCoreApplicationDialog (string message, DotNetCoreVersion requiredVersion)
 		{
-			return Runtime.RunInMainThread (() => {
-				CreateInfoBarInstance ().Prompt ();
-			});
+			return Runtime.RunInMainThread (() => CreateInfoBarInstance ().Prompt (message, requiredVersion));
 		}
 
-		Task ShowDotNetCoreNotInstalledDialog (bool unsupportedSdkVersion)
+		Task ShowDotNetCoreNotInstalledDialog (string message, DotNetCoreVersion requiredVersion)
 		{
 			return Runtime.RunInMainThread (() => {
 				if (ShownDotNetCoreSdkNotInstalledDialogForSolution ())
@@ -226,18 +229,13 @@ namespace MonoDevelop.DotNetCore
 
 				Project.ParentSolution.ExtendedProperties [ShownDotNetCoreSdkInstalledExtendedPropertyName] = "true";
 
-				CreateInfoBarInstance (unsupportedSdkVersion).Prompt ();
+				CreateInfoBarInstance ().Prompt (message, requiredVersion);
 			});
 		}
 
-		DotNetCoreNotInstalledInfoBar CreateInfoBarInstance (bool unsupportedSdkVersion = false)
+		DotNetCoreNotInstalledInfoBar CreateInfoBarInstance ()
 		{
-			return new DotNetCoreNotInstalledInfoBar {
-				IsUnsupportedVersion = unsupportedSdkVersion,
-				RequiredDotNetCoreVersion = DotNetCoreVersion.Parse (Project.TargetFramework.Id.Version),
-				CurrentDotNetCorePath = sdkPaths.MSBuildSDKsPath,
-				IsNetStandard = Project.TargetFramework.Id.IsNetStandard ()
-			};
+			return new DotNetCoreNotInstalledInfoBar ();
 		}
 
 		bool ShownDotNetCoreSdkNotInstalledDialogForSolution ()
@@ -289,7 +287,8 @@ namespace MonoDevelop.DotNetCore
 				return;
 
 			if (HasSdk && !IsDotNetCoreSdkInstalled ()) {
-				ShowDotNetCoreNotInstalledDialog (sdkPaths.IsUnsupportedSdkVersion);
+				var requiredVersion = DotNetCoreVersion.Parse (Project.TargetFramework.Id.Version);
+				ShowDotNetCoreNotInstalledDialog (DotNetCoreSdk.GetNotSupportedVersionMessage (requiredVersion.OriginalString), requiredVersion);
 			}
 
 			if (Project.ParentSolution == null)
@@ -405,7 +404,13 @@ namespace MonoDevelop.DotNetCore
 
 		public bool HasSdk => Project.MSBuildProject.GetReferencedSDKs ().Length > 0;
 
-		protected bool IsWebProject (DotNetProject project)
+		protected static bool SupportsLaunchSettings (DotNetProject project)
+		{
+			return IsWebProject (project) ||
+				project.MSBuildProject.GetReferencedSDKs ().FirstOrDefault (x => x.IndexOf ("Microsoft.NET.Sdk.Worker", StringComparison.OrdinalIgnoreCase) != -1) != null;
+		}
+
+		protected static bool IsWebProject (DotNetProject project)
 		{
 			return (project.MSBuildProject.GetReferencedSDKs ().FirstOrDefault (x => x.IndexOf ("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) != -1) != null);
 		}

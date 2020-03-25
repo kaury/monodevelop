@@ -41,6 +41,7 @@ using MonoDevelop.Projects;
 
 namespace MonoDevelop.Components.MainToolbar
 {
+	[Serializable]
 	class MainToolbarController : ICommandBar
 	{
 		const string ToolbarExtensionPath = "/MonoDevelop/Ide/CommandBar";
@@ -574,6 +575,7 @@ namespace MonoDevelop.Components.MainToolbar
 				currentSolution.StartupConfigurationChanged -= HandleStartupItemChanged;
 				currentSolution.Saved -= HandleSolutionSaved;
 				currentSolution.EntrySaved -= HandleSolutionEntrySaved;
+				currentSolution.SolutionItemAdded -= HandleSolutionItemAdded;
 			}
 
 			currentSolution = e.Solution;
@@ -582,6 +584,7 @@ namespace MonoDevelop.Components.MainToolbar
 				currentSolution.StartupConfigurationChanged += HandleStartupItemChanged;
 				currentSolution.Saved += HandleSolutionSaved;
 				currentSolution.EntrySaved += HandleSolutionEntrySaved;
+				currentSolution.SolutionItemAdded += HandleSolutionItemAdded;
 			}
 
 			TrackStartupProject ();
@@ -622,6 +625,14 @@ namespace MonoDevelop.Components.MainToolbar
 			// Skip the per-project update when a solution is being saved. The solution Saved callback will do the final update.
 			if (!e.SavingSolution)
 				HandleSolutionSaved (sender, e);
+		}
+
+		void HandleSolutionItemAdded (object sender, SolutionItemChangeEventArgs e)
+		{
+			// When a solution item is added due to a reload we need to ensure the configurationMergers dictionary is
+			// using the new project and not the old disposed project.
+			if (e.Reloading)
+				UpdateCombos ();
 		}
 
 		void HandleStartupItemChanged (object sender, EventArgs e)
@@ -706,7 +717,7 @@ namespace MonoDevelop.Components.MainToolbar
 				};
 				popup.SelectedItemChanged += delegate {
 					var si = popup?.Content?.SelectedItem;
-					if (si == null || si.Item < 0 || si.Item >= si.DataSource.Count)
+					if (si == null || !si.IsValid)
 						return;
 					var text = si.DataSource [si.Item].AccessibilityMessage;
 					if (string.IsNullOrEmpty (text))
@@ -983,6 +994,7 @@ namespace MonoDevelop.Components.MainToolbar
 			public event EventHandler TitleChanged;
 		}
 
+		[Serializable]
 		class RuntimeModel : IRuntimeModel
 		{
 			MainToolbarController Controller { get; set; }
@@ -1082,6 +1094,7 @@ namespace MonoDevelop.Components.MainToolbar
 			}
 		}
 
+		[Serializable]
 		class RuntimeMutableModel : IRuntimeMutableModel
 		{
 			public RuntimeMutableModel(string text)
@@ -1154,6 +1167,7 @@ namespace MonoDevelop.Components.MainToolbar
 			}
 		}
 
+		[Serializable]
 		class ConfigurationModel : IConfigurationModel
 		{
 			public ConfigurationModel (string originalId)
@@ -1166,6 +1180,7 @@ namespace MonoDevelop.Components.MainToolbar
 			public string DisplayString { get; private set; }
 		}
 
+		[Serializable]
 		class RunConfigurationModel : IRunConfigurationModel
 		{
 			public RunConfigurationModel (SolutionRunConfiguration config)
